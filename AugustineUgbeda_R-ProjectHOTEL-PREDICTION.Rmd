@@ -1,0 +1,241 @@
+---
+title: "AugustineUgbeda_R PROJECT/HOTEL PREDICTION"
+author: "AUGUSTINE UGBEDA"
+date: "2020 M11 18"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+RUN NESSASARY LIBRARIES
+
+```{r}
+library(tidyverse) #for data cleaning
+library(Boruta) #for feature selection
+library(randomForest)
+library(lattice)
+library(mlbench)
+library(dplyr)
+library(tidyselect)
+library(caret)  # package for model training(Regression and classifications)
+library(ggplot2) # package for creating charts/visualizations
+library(e1071) #needed for random forest and confusion matrix
+```
+IMPORTING DATASET and DATA PREPARATION
+```{r}
+HOTEL <- read.csv("C:\\Users\\augustine ugbeda\\Documents\\R\\R PROJECT\\H1.csv",stringsAsFactors = T)
+
+```
+REMOVAL OF NAs
+```{r}
+hotel <- na.omit(HOTEL)
+```
+
+```{r}
+###RANDOM FOREST cannot handle variables with over 53 categories ,therefore i need to check the columns with over 53 categories and drop them 
+str(HOTEL)
+
+```
+
+```{r}
+variables <- c("Company","ReservationStatusDate","Agent","Country","ReservationStatus") # list of variabees
+hotel <- hotel[ , !(names(hotel)%in% variables)] #dropping the variables
+
+```
+
+DECLARING the independent variable(IsCanceled) as a factor
+```{r}
+# declearing IsCanceled as a factor
+hotel$IsCanceled<-as.factor(hotel$IsCanceled)
+```
+
+
+
+
+SUMMARY STATISTICS
+```{r}
+summary(hotel)
+
+```
+STRUCTURE
+```{r}
+str(hotel)
+
+```
+
+
+
+
+
+###VISUALIZATIONS
+```{r}
+#boxplot visualisations of IsCancelled against other variables
+par(mfrow=c(3,3))
+
+boxplot(LeadTime~IsCanceled,ylab = "LeadTime",xlab="IsCanceled",col="blue",data= hotel)
+boxplot( ArrivalDateYear ~IsCanceled,ylab = "ArrivalDateYear",xlab="IsCanceled",col="yellow",data= hotel)
+boxplot(ArrivalDateWeekNumber ~IsCanceled,ylab = "ArrivalDateWeekNumber",xlab="IsCanceled",col="green",data= hotel)
+boxplot(Children ~IsCanceled,ylab = "Children",xlab="IsCanceled",col="light blue",data= hotel)
+boxplot(Babies~IsCanceled,ylab = "Babies",xlab="IsCanceled",col="orange",data= hotel)
+
+boxplot(PreviousCancellations ~IsCanceled,ylab = "PreviousCancellations",xlab="IsCanceled",col="violet",data= hotel)
+boxplot(ArrivalDateDayOfMonth ~IsCanceled,ylab = "ArrivalDateDayOfMonth",xlab="IsCanceled",col="violet",data= hotel)
+```
+
+
+```{r}
+xyplot(LeadTime~ArrivalDateDayOfMonth|IsCanceled,
+       layout=c(3,1),#with ncol=3, and nrow=1
+       group=IsCanceled,data = hotel,
+       type=c("p","smooth"),
+       scales = "free")#show points on smooted line
+```
+```{r}
+ggplot(hotel,aes(x=ArrivalDateMonth, y=DaysInWaitingList,group=1)) + stat_summary(fun="mean", geom="line", col="green") + 
+  ggtitle("Average Days on Waiting List by Arrival Month") + ylab("Average Days on WaitingList") + xlab("Month") +theme_bw() 
+```
+The line graph above shows that december has the highest average days in waiting list
+
+
+
+
+CREATING THE TEST AND TRAINING DATA
+```{r}
+#create training set(SPLITING THE TARGET VARIABLE)
+table(hotel$IsCanceled)
+data1 <-hotel[which(hotel$IsCanceled==0),] 
+data2 <-hotel[which(hotel$IsCanceled==1),]
+
+set.seed(100)
+
+#this shows that we have 28938 for not cancelled and 11122 for cancelled
+```
+
+```{r}
+##set training data to 80% of the dataset
+training1 <- sample(1:nrow(data1),0.80*nrow(data1))
+training2 <-sample(1:nrow(data2),0.80*nrow(data2))
+
+View(training1)
+View(training2)
+
+```
+
+```{r}
+#put both in data frames
+training_1 <- data1[training1,]
+View(training_1)
+training_2 <- data2[training2,]
+View(training_2)
+
+```
+
+```{r}
+trainingdata <- rbind(training_1,training_2)##combine the two
+View(trainingdata)
+```
+
+```{r}
+##create test data 20 %
+test_1 <- data1[-training1,]#contain 20 %of those not canceled
+test_2 <- data2[-training2,]#contains 20%of those canceled
+
+testdata <- rbind(test_1,test_2)
+View(testdata)
+```
+
+
+FEATURE SELECTION USING RANDOM FOREST
+
+
+```{r}
+set.seed(150)
+model <- randomForest(IsCanceled~.,data = hotel)
+RandomF <- importance(model)
+RandomF
+```
+
+```{r}
+# Converting the result got into a data frame for visualizations
+RandomF_DF <- data.frame(Variables = row.names(RandomF), MeanDecreaseGini = RandomF[,1])
+RandomF_DF <- RandomF_DF[order(RandomF_DF$MeanDecreaseGini, decreasing = TRUE),]
+RandomF_DF
+```
+
+
+```{r}
+
+# Graphical represtation of the feature selection
+ggplot(RandomF_DF[1:20,], aes(x=reorder(Variables, MeanDecreaseGini), y=MeanDecreaseGini, fill=MeanDecreaseGini)) + geom_bar(stat = 'identity') + labs(x = 'Variables', y= '% of increase in MeanDecreaseGini if variable is randomly permuted') + coord_flip() + theme(legend.position="none")
+
+```
+from the above visualization,we can see that "leadtime" has more effect than all the other variables in the dataset
+
+for the purpose of creating the model,we will use variables with MeanDecreaseGini of 500 and above
+
+
+MODEL BUILDING
+```{r}
+##building the logistic regression models
+logisticmodel1 <- glm(IsCanceled~LeadTime+ADR+DepositType+MarketSegment+RequiredCarParkingSpaces+StaysInWeekNights+CustomerType, data = trainingdata, family = binomial(link = "logit"))
+
+summary(logisticmodel1)
+
+
+
+```
+
+
+predict scores and add to the data
+```{r}
+testdata$predict<- predict(logisticmodel1,testdata)
+View(testdata)
+```
+
+```{r}
+AIC(logisticmodel1) #penalty for additional variable
+BIC(logisticmodel1)# a stronger penalty for adding additional variable
+```
+```{r}
+# Model1 Accuracy
+testdata$predict_1 <- ifelse(testdata$predict >0, 1,0)
+View(testdata)
+```
+
+
+
+checking if the predict_1 column is factor  and changing the predict_1 column to factor 
+```{r}
+is.factor(testdata$predict_1)
+
+testdata$predict_1<- as.factor(testdata$predict_1)
+
+testdata$IsCanceled<- as.factor(testdata$IsCanceled)
+
+```
+
+
+CONFUSION MATRIX
+```{r}
+confusionMatrix(testdata$IsCanceled, testdata$predict_1)
+```
+
+
+
+```{r}
+#PRACTICAL REAL TIME PREDICTION
+#Lets say a person books for a reservation and have a profile as below
+#now you want to predict the chances that the person will cancel his reservation
+guest<- data.frame(DepositType = "No Deposit     ", ADR = 0.00, MarketSegment = "Corporate", RequiredCarParkingSpaces = 1, StaysInWeekNights = 2,CustomerType = "Contract",LeadTime = 200)
+
+predictions<- predict(logisticmodel1, guest)
+predictions
+guest$pred <- ifelse(predictions>0, "1","0")
+guest
+
+
+
+```
+
+from the above we can see the predicted value for the guest is 0 which is Not canceled.therefore we predict that a guest with the above profile will not cancel his or her reservation
